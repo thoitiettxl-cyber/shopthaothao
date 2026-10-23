@@ -7,10 +7,7 @@
   "kv_namespaces": [
     {
       "binding": "DB",
-      // TODO(shopthaothao): replace with the id printed by
-      //   npx wrangler kv namespace create shopthaothao-db
-      // Must NOT be the KSHT namespace id.
-      "id": "REPLACE_WITH_SHOPTHAOTHAO_KV_NAMESPACE_ID"
+      "id": "32b7599465724ab1bf089fbd7e9f84be"
     }
   ],
   "vars": {
@@ -19,9 +16,7 @@
   "ratelimits": [
     {
       "name": "LOGIN_RATE_LIMITER",
-      // TODO(shopthaothao): pick a new integer unique in this Cloudflare account
-      // (KSHT uses a different one). Placeholder below is intentionally invalid.
-      "namespace_id": "REPLACE_WITH_UNIQUE_INTEGER",
+      "namespace_id": "824951",
       "simple": {
         "limit": 10,
         "period": 60
