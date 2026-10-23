@@ -1,0 +1,43 @@
+{
+  "name": "shopthaothao",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "npm run test:worker",
+    "typecheck": "tsc --noEmit",
+    "check:unused": "tsc --noEmit --noUnusedLocals --noUnusedParameters",
+    "test:worker": "node --test tests/cloudflare-worker.test.js",
+    "test:domain": "node --experimental-strip-types --test tests/domain/domain.test.ts",
+    "test:application": "node --experimental-strip-types --test tests/application/application.test.ts tests/application/restore.test.ts",
+    "test:contract": "node --experimental-strip-types --test tests/contract/openapi.test.ts",
+    "test:persistence": "node --experimental-strip-types --test tests/persistence/d1.test.ts tests/persistence/sqlite-app.test.ts",
+    "test:frontend": "node --experimental-strip-types --test --test-concurrency=1 tests/frontend/no-whole-key-writers.test.ts tests/frontend/giaban-page.test.ts tests/frontend/giaban-payloads.test.ts tests/frontend/operation-state.test.ts tests/frontend/client-transport.test.ts tests/frontend/session-and-catalog.test.ts tests/frontend/business-domain.test.ts tests/frontend/integration-blockers.test.ts tests/frontend/order-actions.test.ts",
+    "test:catalog-normalization": "node --experimental-strip-types --test tests/migration/catalog-normalization.test.ts",
+    "test:platform": "node --experimental-strip-types --test tests/domain/domain.test.ts tests/application/application.test.ts tests/application/restore.test.ts tests/contract/openapi.test.ts tests/persistence/d1.test.ts tests/persistence/sqlite-app.test.ts tests/http/ksht.test.ts tests/http/kv-runtime.test.ts tests/http/legacy.test.ts tests/http/phase6.test.ts tests/frontend/no-whole-key-writers.test.ts tests/persistence/live-kv.test.ts tests/migration/migration.test.ts tests/migration/catalog-normalization.test.ts tests/migration/quarantine-review.test.ts",
+    "catalog:normalize:preview": "node --experimental-strip-types scripts/catalog/previewNormalization.ts",
+    "migration:quarantine:preview": "node --experimental-strip-types scripts/migration/previewQuarantineReview.ts",
+    "catalog:normalize:render": "node --experimental-strip-types scripts/catalog/renderNormalizationArtifact.ts",
+    "worker:dry-run": "wrangler deploy --dry-run --keep-vars",
+    "predeploy": "npm run build",
+    "deploy": "gh-pages -d dist"
+  },
+  "dependencies": {
+    "html2canvas": "^1.4.1",
+    "lucide-react": "^0.556.0",
+    "react": "^19.2.1",
+    "react-dom": "^19.2.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.14.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "gh-pages": "^6.3.0",
+    "typescript": "~5.8.2",
+    "vite": "^6.2.0",
+    "wrangler": "^4.128.0",
+    "yaml": "2.9.0"
+  }
+}

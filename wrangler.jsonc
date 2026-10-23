@@ -1,0 +1,34 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "shopthaothao-api",
+  "main": "workers/api/index.ts",
+  "compatibility_date": "2025-12-11",
+  "workers_dev": true,
+  "kv_namespaces": [
+    {
+      "binding": "DB",
+      // TODO(shopthaothao): replace with the id printed by
+      //   npx wrangler kv namespace create shopthaothao-db
+      // Must NOT be the KSHT namespace id.
+      "id": "REPLACE_WITH_SHOPTHAOTHAO_KV_NAMESPACE_ID"
+    }
+  ],
+  "vars": {
+    "ALLOWED_ORIGINS": "https://shopthaothao.khosihuythao.com"
+  },
+  "ratelimits": [
+    {
+      "name": "LOGIN_RATE_LIMITER",
+      // TODO(shopthaothao): pick a new integer unique in this Cloudflare account
+      // (KSHT uses a different one). Placeholder below is intentionally invalid.
+      "namespace_id": "REPLACE_WITH_UNIQUE_INTEGER",
+      "simple": {
+        "limit": 10,
+        "period": 60
+      }
+    }
+  ],
+  "observability": {
+    "enabled": true
+  }
+}

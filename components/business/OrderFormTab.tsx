@@ -1,0 +1,468 @@
+import React from 'react';
+import html2canvas from 'html2canvas';
+import { FileText, Search, Plus, ChevronDown, Store } from 'lucide-react';
+import { Product } from '../../types';
+import { Order, BankInfo, ShopTemplate, Customer } from '../../businessService';
+import { NewOrder, OrderItem } from '../../hooks/useBusinessData';
+import { generateImagePreviewContent, generatePDFContent, generateReceiptContent, openPrintWindow } from '../../utils/pdfGenerator';
+import { ManualEntryRow } from './ManualEntryRow';
+import { OrderItemsTable } from './OrderItemsTable';
+import { OrderSummarySection } from './OrderSummarySection';
+
+interface OrderFormTabProps {
+    newOrder: NewOrder;
+    setNewOrder: (order: NewOrder) => void;
+    productSearch: string;
+    setProductSearch: (search: string) => void;
+    showProductDropdown: boolean;
+    setShowProductDropdown: (show: boolean) => void;
+    filteredProducts: Product[];
+    addProductFromList: (product: Product) => void;
+    addVariantToOrder: (product: Product, variant: import('../../types').ProductVariant) => void;
+    addQuantity: number;
+    setAddQuantity: (qty: number) => void;
+    updateItemField: (itemId: string, field: keyof OrderItem, value: string | number) => void;
+    removeItem: (itemId: string) => void;
+    getSubtotal: () => number;
+    getTotal: () => number;
+    handleSaveOrder: (confirm: boolean) => Promise<Order | null>;
+    bankInfo: BankInfo | null;
+    shopTemplates: ShopTemplate[];
+    orderCount: number;
+    resetOrderForm: () => void;
+    productDropdownRef: React.RefObject<HTMLDivElement>;
+    customerMatches?: Customer[];
+    searchExistingCustomers?: (query: string) => void;
+    selectCustomer?: (customerId: string) => void;
+    saving?: boolean;
+}
+
+const formatPrice = (price: number): string => {
+    return new Intl.NumberFormat('vi-VN').format(price) + 'đ';
+};
+
+export const OrderFormTab: React.FC<OrderFormTabProps> = ({
+    newOrder, setNewOrder, productSearch, setProductSearch,
+    showProductDropdown, setShowProductDropdown, filteredProducts,
+    addProductFromList, addVariantToOrder, addQuantity, setAddQuantity,
+    updateItemField, removeItem, getSubtotal, getTotal,
+    handleSaveOrder, bankInfo, shopTemplates, orderCount,
+    productDropdownRef, customerMatches = [], searchExistingCustomers, selectCustomer, saving,
+}) => {
+    const [expandedProductId, setExpandedProductId] = React.useState<string | null>(null);
+    const [customerSearchQuery, setCustomerSearchQuery] = React.useState('');
+    const customerDropdownRef = React.useRef<HTMLDivElement>(null);
+
+    const hasSoCuonInTable = newOrder.items.some(item => item.soCuon !== undefined && item.soCuon > 0);
+    const hasSoKiInTable = newOrder.items.some(item => item.soKi !== undefined && item.soKi > 0);
+
+    React.useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (customerDropdownRef.current && !customerDropdownRef.current.contains(event.target as Node)) {
+                searchExistingCustomers?.('');
+            }
+            if (productDropdownRef.current && !productDropdownRef.current.contains(event.target as Node)) {
+                setShowProductDropdown(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside);
+        };
+    }, [productDropdownRef, searchExistingCustomers, setShowProductDropdown]);
+
+    const handleCreateAndExportPDF = async () => {
+        const debt = newOrder.debt || newOrder.previousDebt || 0;
+        const order = await handleSaveOrder(true);
+        if (!order) return;
+
+        const selectedTemplate = shopTemplates.find(t => t.id === order.shopTemplateId) || shopTemplates[0];
+        const pdfContent = generatePDFContent(order, bankInfo, orderCount + 1, selectedTemplate, debt);
+
+        const container = document.createElement('div');
+        container.style.cssText = 'position: fixed; left: -9999px; top: 0; width: 800px; background: white;';
+        container.innerHTML = pdfContent;
+        document.body.appendChild(container);
+
+        const contentElement = container.querySelector('.container') as HTMLElement;
+        if (!contentElement) {
+            document.body.removeChild(container);
+            alert('Lỗi: Không thể tạo ảnh hoá đơn');
+            return;
+        }
+
+        await new Promise(resolve => setTimeout(resolve, 500));
+
+        try {
+            const canvas = await html2canvas(contentElement, {
+                backgroundColor: '#ffffff',
+                scale: 2,
+                useCORS: true,
+                logging: false,
+                width: contentElement.scrollWidth,
+                height: contentElement.scrollHeight
+            });
+
+            const imageDataUrl = canvas.toDataURL('image/png');
+            document.body.removeChild(container);
+            openPrintWindow(generateImagePreviewContent(
+                `Phiếu xuất kho #${orderCount + 1}`,
+                imageDataUrl,
+                'Hoá đơn'
+            ));
+        } catch (error) {
+            console.error('Error generating invoice image:', error);
+            document.body.removeChild(container);
+            const printWindow = openPrintWindow(pdfContent);
+            if (printWindow) {
+                setTimeout(() => {
+                    printWindow.print();
+                }, 500);
+            }
+        }
+    };
+
+    const handleThermalPrint = async () => {
+        const debt = newOrder.debt || newOrder.previousDebt || 0;
+        const order = await handleSaveOrder(true);
+        if (!order) return;
+
+        const selectedTemplate = shopTemplates.find(t => t.id === order.shopTemplateId) || shopTemplates[0];
+        const receiptContent = generateReceiptContent(order, orderCount + 1, selectedTemplate, bankInfo, debt);
+
+        const printWindow = openPrintWindow(receiptContent);
+        if (printWindow) {
+            setTimeout(() => {
+                printWindow.print();
+                printWindow.close();
+            }, 500);
+        }
+    };
+
+    return (
+        <div className="space-y-6">
+            {/* Template Selection */}
+            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-wrap items-center gap-4">
+                <div className="flex items-center gap-2 text-slate-600 font-medium">
+                    <Store size={20} className="text-pink-500" />
+                    <span className="text-sm">Mẫu in hóa đơn:</span>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                    {shopTemplates.map(template => (
+                        <button
+                            key={template.id}
+                            onClick={() => setNewOrder({ ...newOrder, selectedTemplateId: template.id })}
+                            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all border-2 ${newOrder.selectedTemplateId === template.id
+                                ? 'border-pink-500 bg-pink-50 text-pink-600'
+                                : 'border-slate-100 bg-slate-50 text-slate-500 hover:border-slate-200'
+                                }`}
+                        >
+                            {template.name}
+                        </button>
+                    ))}
+                </div>
+            </div>
+
+            <section className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+                <div className="px-6 py-4 border-b border-slate-200 bg-slate-50 flex items-center gap-3">
+                    <FileText size={20} className="text-green-600" />
+                    <h2 className="font-semibold text-slate-800">Tạo đơn hàng mới</h2>
+                </div>
+                <div className="p-4 md:p-6 space-y-6">
+                    {/* Customer Info */}
+                    <div className="bg-slate-50/80 p-4 md:p-5 rounded-2xl border border-slate-100">
+                        <h3 className="font-medium text-slate-700 mb-4 flex items-center gap-2">
+                            <div className="w-1 h-4 bg-blue-500 rounded-full"></div>
+                            Thông tin khách hàng
+                        </h3>
+                        <div className="space-y-3">
+                            <div className="relative" ref={customerDropdownRef}>
+                                <div className="relative">
+                                    <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                                    <input
+                                        type="text"
+                                        placeholder="Tìm khách hiện có theo tên hoặc SĐT..."
+                                        value={customerSearchQuery}
+                                        onChange={(e) => {
+                                            setCustomerSearchQuery(e.target.value);
+                                            searchExistingCustomers?.(e.target.value);
+                                        }}
+                                        className="w-full pl-10 pr-10 py-2.5 border border-slate-200 rounded-xl bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    />
+                                    {customerSearchQuery && (
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setCustomerSearchQuery('');
+                                                searchExistingCustomers?.('');
+                                            }}
+                                            className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-sm font-bold p-1"
+                                        >
+                                            ✕
+                                        </button>
+                                    )}
+                                </div>
+                                {customerMatches.length > 0 && (
+                                    <div className="absolute z-30 mt-1 w-full bg-white border border-slate-200 rounded-xl shadow-lg max-h-56 overflow-auto">
+                                        {customerMatches.map((customer) => (
+                                            <button
+                                                key={customer.id}
+                                                type="button"
+                                                onClick={() => {
+                                                    selectCustomer?.(customer.id);
+                                                    setCustomerSearchQuery('');
+                                                }}
+                                                className="w-full text-left px-4 py-2.5 hover:bg-slate-50 text-sm flex items-center justify-between border-b border-slate-100 last:border-0"
+                                            >
+                                                <div>
+                                                    <span className="font-semibold text-slate-800">{customer.name}</span>
+                                                    <span className="text-slate-500 text-xs ml-2">· {customer.phone}</span>
+                                                    {customer.duplicatePhoneWarning ? <span className="text-red-500 text-xs ml-1">· trùng SĐT</span> : ''}
+                                                </div>
+                                                {(customer.outstanding || 0) > 0 && (
+                                                    <span className="text-xs font-bold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">
+                                                        Công nợ: {formatPrice(customer.outstanding || 0)}
+                                                    </span>
+                                                )}
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                            {newOrder.customerId && (
+                                <div className="flex flex-wrap items-center justify-between gap-2 p-3 bg-blue-50/80 border border-blue-200 rounded-xl text-xs sm:text-sm">
+                                    <div className="flex items-center gap-2">
+                                        <span className="font-bold text-blue-800">Đã chọn:</span>
+                                        <span className="font-bold text-slate-800">{newOrder.customerName}</span>
+                                        <span className="text-slate-500">({newOrder.phone})</span>
+                                        {(newOrder.debt || newOrder.previousDebt || 0) > 0 && (
+                                            <span className="font-black text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full text-xs">
+                                                Công nợ: {formatPrice(newOrder.debt || newOrder.previousDebt || 0)}
+                                            </span>
+                                        )}
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setNewOrder({ ...newOrder, customerId: '', debt: 0, previousDebt: 0 });
+                                            setCustomerSearchQuery('');
+                                            searchExistingCustomers?.('');
+                                        }}
+                                        className="text-xs text-blue-600 hover:text-blue-800 font-semibold underline"
+                                    >
+                                        Bỏ chọn / Nhập khách khác
+                                    </button>
+                                </div>
+                            )}
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                <input
+                                    type="text"
+                                    placeholder="Tên khách hàng *"
+                                    value={newOrder.customerName}
+                                    onChange={(e) => setNewOrder({ ...newOrder, customerName: e.target.value })}
+                                    className="px-4 py-3 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500 bg-white text-sm"
+                                />
+                                <input
+                                    type="tel"
+                                    placeholder="Số điện thoại"
+                                    value={newOrder.phone}
+                                    onChange={(e) => setNewOrder({ ...newOrder, phone: e.target.value })}
+                                    className="px-4 py-3 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500 bg-white text-sm"
+                                />
+                                <input
+                                    type="text"
+                                    placeholder="Địa chỉ"
+                                    value={newOrder.address}
+                                    onChange={(e) => setNewOrder({ ...newOrder, address: e.target.value })}
+                                    className="px-4 py-3 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500 bg-white text-sm"
+                                />
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Add Products */}
+                    <div className="bg-emerald-50/50 p-4 md:p-5 rounded-2xl border border-emerald-100">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+                            <h3 className="font-medium text-slate-700 flex items-center gap-2">
+                                <div className="w-1 h-4 bg-emerald-500 rounded-full"></div>
+                                Thêm sản phẩm
+                            </h3>
+                            <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
+                                <input
+                                    type="checkbox"
+                                    checked={newOrder.isManualEntry}
+                                    onChange={(e) => setNewOrder({ ...newOrder, isManualEntry: e.target.checked })}
+                                    className="w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                                />
+                                <span className="text-slate-600 font-medium">Nhập tay (không có trong DS)</span>
+                            </label>
+                        </div>
+
+                        {!newOrder.isManualEntry ? (
+                            <div className="flex flex-col md:flex-row gap-4 items-center" ref={productDropdownRef}>
+                                <div className="flex-1 w-full relative">
+                                    <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                                    <input
+                                        type="text"
+                                        placeholder="Tìm sản phẩm..."
+                                        value={productSearch}
+                                        onChange={(e) => {
+                                            setProductSearch(e.target.value);
+                                            setShowProductDropdown(true);
+                                        }}
+                                        onFocus={() => setShowProductDropdown(true)}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter' && filteredProducts.length > 0) {
+                                                e.preventDefault();
+                                                const p = filteredProducts[0];
+                                                if (p.variants.length === 1) {
+                                                    addProductFromList(p);
+                                                } else {
+                                                    setExpandedProductId(p.id);
+                                                }
+                                            }
+                                        }}
+                                        className="w-full pl-10 pr-4 py-3 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white text-sm"
+                                    />
+                                    {showProductDropdown && productSearch && (
+                                        <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg z-40 max-h-80 overflow-auto">
+                                            {filteredProducts.length > 0 ? (
+                                                filteredProducts.map(product => (
+                                                    <div key={product.id} className="border-b border-slate-100 last:border-0">
+                                                        <button
+                                                            onClick={() => {
+                                                                if (product.variants.length > 1) {
+                                                                    setExpandedProductId(expandedProductId === product.id ? null : product.id);
+                                                                } else {
+                                                                    addProductFromList(product);
+                                                                }
+                                                            }}
+                                                            className="w-full px-4 py-3 text-left hover:bg-slate-50 flex items-center gap-3"
+                                                        >
+                                                            <img
+                                                                src={product.image}
+                                                                alt={product.name}
+                                                                className="w-10 h-10 rounded-lg object-cover bg-slate-100"
+                                                            />
+                                                            <div className="flex-1 min-w-0">
+                                                                <div className="font-bold text-slate-800 text-sm truncate">{product.name}</div>
+                                                                <div className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">
+                                                                    {product.variants.length} loại • từ {formatPrice(Math.min(...product.variants.map(v => v.price)))}
+                                                                </div>
+                                                            </div>
+                                                            {product.variants.length > 1 && (
+                                                                <ChevronDown
+                                                                    size={16}
+                                                                    className={`text-slate-400 transition-transform duration-300 ${expandedProductId === product.id ? 'rotate-180' : ''}`}
+                                                                />
+                                                            )}
+                                                        </button>
+
+                                                        {expandedProductId === product.id && product.variants.length > 1 && (
+                                                            <div className="bg-slate-50 py-2 animate-in slide-in-from-top-2 duration-200">
+                                                                {product.variants.map((variant, vIndex) => (
+                                                                    <button
+                                                                        key={vIndex}
+                                                                        onClick={() => addVariantToOrder(product, variant)}
+                                                                        className="w-full pl-16 pr-4 py-2.5 text-left hover:bg-white flex items-center justify-between group"
+                                                                    >
+                                                                        <div className="text-xs">
+                                                                            <span className="font-black text-slate-700">{variant.size}</span>
+                                                                            <span className="text-slate-300 mx-2">|</span>
+                                                                            <span className="text-slate-500 font-medium">{variant.unit}</span>
+                                                                        </div>
+                                                                        <div className="flex items-center gap-3">
+                                                                            <span className="font-black text-emerald-600 text-sm">{formatPrice(variant.price)}</span>
+                                                                            <Plus size={14} className="text-slate-300 group-hover:text-emerald-500 transition-colors" />
+                                                                        </div>
+                                                                    </button>
+                                                                ))}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                ))
+                                            ) : (
+                                                <div className="px-4 py-3 text-slate-500 text-sm">Không tìm thấy sản phẩm</div>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+                                <div className="flex items-center gap-3 bg-white px-4 py-2.5 border border-slate-200 rounded-xl w-full md:w-auto justify-center">
+                                    <span className="text-sm font-bold text-slate-400 uppercase tracking-wider">SL:</span>
+                                    <input
+                                        type="number"
+                                        min="1"
+                                        value={addQuantity === 0 ? '' : addQuantity}
+                                        onChange={(e) => {
+                                            const val = e.target.value;
+                                            setAddQuantity(val === '' ? 0 : parseInt(val) || 0);
+                                        }}
+                                        className="w-16 py-1 text-center font-black text-slate-800 focus:outline-none text-lg"
+                                    />
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="space-y-4">
+                                {/* Manual Entry Options */}
+                                <div className="flex flex-wrap items-center gap-4 p-3 bg-white rounded-xl border border-slate-200">
+                                    <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Cấu trúc hàng nhập tay:</span>
+                                    <div className="flex gap-4">
+                                        <label className="flex items-center gap-2 text-sm cursor-pointer">
+                                            <input
+                                                type="checkbox"
+                                                checked={newOrder.showSoCuon}
+                                                onChange={(e) => setNewOrder({ ...newOrder, showSoCuon: e.target.checked })}
+                                                className="w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                                            />
+                                            <span className="text-slate-700 font-medium">Số cuộn</span>
+                                        </label>
+                                        <label className="flex items-center gap-2 text-sm cursor-pointer">
+                                            <input
+                                                type="checkbox"
+                                                checked={newOrder.showSoKi}
+                                                onChange={(e) => setNewOrder({ ...newOrder, showSoKi: e.target.checked })}
+                                                className="w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                                            />
+                                            <span className="text-slate-700 font-medium">Số kí</span>
+                                        </label>
+                                    </div>
+                                </div>
+
+                                {/* Manual Entry Input Row */}
+                                <ManualEntryRow
+                                    newOrder={newOrder}
+                                    setNewOrder={setNewOrder}
+                                />
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Order Items List */}
+                    {newOrder.items.length > 0 && (
+                        <OrderItemsTable
+                            items={newOrder.items}
+                            updateItemField={updateItemField}
+                            removeItem={removeItem}
+                            hasSoCuon={hasSoCuonInTable}
+                            hasSoKi={hasSoKiInTable}
+                            formatPrice={formatPrice}
+                        />
+                    )}
+
+                    {/* Order Summary & Actions */}
+                    <OrderSummarySection
+                        newOrder={newOrder}
+                        setNewOrder={setNewOrder}
+                        getSubtotal={getSubtotal}
+                        getTotal={getTotal}
+                        formatPrice={formatPrice}
+                        handleCreateAndExportPDF={handleCreateAndExportPDF}
+                        handleThermalPrint={handleThermalPrint}
+                        handleSaveOrder={handleSaveOrder}
+                        saving={saving}
+                    />
+                </div>
+            </section>
+        </div>
+    );
+};
